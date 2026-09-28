@@ -1999,14 +1999,16 @@ function printQuote() {
     '<div class="print-footer">' + t('printFooter') + '</div>' +
     '</body></html>';
 
-  const html = coverHtml + detailHtml.replace('LOGO_SRC', logo_src_print);
+  // Auto-print script lives inside the printed document (first, so a slow font can't block it) and fires once images have loaded
+  const autoPrint = '<scr' + 'ipt>(function(){var done=false;function go(){if(done)return;done=true;setTimeout(function(){window.focus();window.print();},300);}' +
+    'if(document.readyState==="complete")go();else window.addEventListener("load",go);setTimeout(go,4000);})();</scr' + 'ipt>';
+  const html = autoPrint + coverHtml + detailHtml.replace('LOGO_SRC', logo_src_print);
   let printWin = null;
   try { printWin = window.open('', '_blank'); } catch (e) {}
   if (printWin) {
     printWin.document.open();
     printWin.document.write(html);
     printWin.document.close();
-    printWin.onload = () => { printWin.focus(); printWin.print(); };
     return;
   }
   // Popup blocked (or sandboxed viewer): print through a hidden iframe instead
@@ -2016,10 +2018,6 @@ function printQuote() {
   frame.id = 'printFrame';
   frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
   document.body.appendChild(frame);
-  frame.onload = () => {
-    try { frame.contentWindow.focus(); frame.contentWindow.print(); }
-    catch (e) { notify(currentLang === 'en' ? 'Printing is blocked here — open the file in a browser.' : 'Impression bloquée ici — ouvrez le fichier dans un navigateur.'); }
-  };
   frame.srcdoc = html;
   notify(currentLang === 'en' ? 'If the print window does not appear, open the file directly in your browser.' : "Si la fenêtre d'impression n'apparaît pas, ouvrez le fichier directement dans votre navigateur.");
 }
