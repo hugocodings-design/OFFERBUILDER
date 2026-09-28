@@ -2003,6 +2003,20 @@ function printQuote() {
   const autoPrint = '<scr' + 'ipt>(function(){var done=false;function go(){if(done)return;done=true;setTimeout(function(){window.focus();window.print();},300);}' +
     'if(document.readyState==="complete")go();else window.addEventListener("load",go);setTimeout(go,4000);})();</scr' + 'ipt>';
   const html = autoPrint + coverHtml + detailHtml.replace('LOGO_SRC', logo_src_print);
+  if (artifactDownloads) {
+    const client = (document.getElementById('clientName').value || 'Client').trim().replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, '_') || 'Client';
+    const d = new Date();
+    const stamp = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    artifactDownloads.save({ filename: 'Soumission_' + client + '_' + stamp + '.html', data: new Blob([html], { type: 'text/html' }) })
+      .then(() => notify(currentLang === 'en' ? 'Open the downloaded file: the print window will appear automatically.' : "Ouvrez le fichier téléchargé : la fenêtre d'impression s'ouvrira automatiquement."))
+      .catch(err => {
+        if (err && (err.code === 'declined' || err.code === 'rate_limited')) return;
+        artifactDownloads = null;
+        printQuote();
+      });
+    return;
+  }
+
   let printWin = null;
   try { printWin = window.open('', '_blank'); } catch (e) {}
   if (printWin) {
@@ -2020,6 +2034,13 @@ function printQuote() {
   document.body.appendChild(frame);
   frame.srcdoc = html;
   notify(currentLang === 'en' ? 'If the print window does not appear, open the file directly in your browser.' : "Si la fenêtre d'impression n'apparaît pas, ouvrez le fichier directement dans votre navigateur.");
+}
+
+// In the claude.ai artifact viewer printing is blocked, so Print offers the quote as a file instead.
+// claude.use is absent elsewhere (GitHub Pages, local file), where printing works normally.
+let artifactDownloads = null;
+if (window.claude && typeof window.claude.use === 'function') {
+  window.claude.use('downloads').then(d => { artifactDownloads = d; }).catch(() => {});
 }
 
 // ── Sandbox-safe helpers (alert/confirm/popups/clipboard may be blocked in embedded previews) ──
