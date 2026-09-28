@@ -1797,7 +1797,7 @@ function printQuote() {
     ids.push('credit_bienvenue');
     selected['credit_bienvenue'] = { name: 'Crédit de bienvenue', mensuel: 0, unique: 0, livraison: 0, qty: 1, credit: creditVal };
   }
-  if (ids.length === 0) { alert('Aucun produit sélectionné.'); return; }
+  if (ids.length === 0) { notify(currentLang === 'en' ? 'No product selected.' : 'Aucun produit sélectionné.'); return; }
 
   let totalMensuel = 0, totalUnique = 0, totalLivraison = 0, totalCredit = 0;
   let mensuelRows = '', uniqueRows = '', livraisonRows = '', creditRows = '';
@@ -1999,22 +1999,73 @@ function printQuote() {
     '<div class="print-footer">' + t('printFooter') + '</div>' +
     '</body></html>';
 
-  const printWin = window.open('', '_blank');
-  if (!printWin) { alert("Veuillez autoriser les popups pour imprimer."); return; }
-  printWin.document.open();
-  printWin.document.write(coverHtml);
-  printWin.document.write(detailHtml.replace('LOGO_SRC', logo_src_print));
-  printWin.document.close();
-  printWin.onload = () => { printWin.focus(); printWin.print(); };
+  const html = coverHtml + detailHtml.replace('LOGO_SRC', logo_src_print);
+  let printWin = null;
+  try { printWin = window.open('', '_blank'); } catch (e) {}
+  if (printWin) {
+    printWin.document.open();
+    printWin.document.write(html);
+    printWin.document.close();
+    printWin.onload = () => { printWin.focus(); printWin.print(); };
+    return;
+  }
+  // Popup blocked (or sandboxed viewer): print through a hidden iframe instead
+  const old = document.getElementById('printFrame');
+  if (old) old.remove();
+  const frame = document.createElement('iframe');
+  frame.id = 'printFrame';
+  frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+  document.body.appendChild(frame);
+  frame.onload = () => {
+    try { frame.contentWindow.focus(); frame.contentWindow.print(); }
+    catch (e) { notify(currentLang === 'en' ? 'Printing is blocked here — open the file in a browser.' : 'Impression bloquée ici — ouvrez le fichier dans un navigateur.'); }
+  };
+  frame.srcdoc = html;
+  notify(currentLang === 'en' ? 'If the print window does not appear, open the file directly in your browser.' : "Si la fenêtre d'impression n'apparaît pas, ouvrez le fichier directement dans votre navigateur.");
+}
+
+// ── Sandbox-safe helpers (alert/confirm/popups/clipboard may be blocked in embedded previews) ──
+function notify(msg) {
+  let el = document.getElementById('appToast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'appToast';
+    el.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#0f1117;color:#fff;padding:12px 20px;border-radius:8px;font-size:14px;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,0.25);max-width:90vw;text-align:center;transition:opacity .2s';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.opacity = '1';
+  clearTimeout(el._timer);
+  el._timer = setTimeout(() => { el.style.opacity = '0'; }, 2500);
+}
+
+function copyText(text) {
+  const fallback = () => new Promise((resolve, reject) => {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+    ok ? resolve() : reject();
+  });
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text).catch(fallback);
+  }
+  return fallback();
 }
 
 function copyQuote() {
+  const btn = document.querySelector('.actions .btn-secondary');
   const client = document.getElementById('clientName').value || 'Client';
   const date = document.getElementById('quoteDate').textContent;
   let text = `SOUMISSION CS PAIEMENT\n${date}\nClient: ${client}\n\n`;
 
   const ids = Object.keys(selected);
-  if (ids.length === 0) { alert('Aucun produit sélectionné.'); return; }
+  if (ids.length === 0) { notify(currentLang === 'en' ? 'No product selected.' : 'Aucun produit sélectionné.'); return; }
 
   text += '── FRAIS MENSUELS ──\n';
   let hasMensuel = false;
@@ -2054,15 +2105,25 @@ function copyQuote() {
   const totalL = ids.reduce((s,id) => s + (selected[id].livraison*selected[id].qty), 0);
   text += `\nTOTAL MENSUEL: ${fmt(totalM)}\nTOTAL FRAIS UNIQUES: ${fmt(totalU)}\nTOTAL LIVRAISON: ${fmt(totalL)}\nTOTAL PREMIER VERSEMENT: ${fmt(totalU+totalL)}`;
 
-  navigator.clipboard.writeText(text).then(() => {
-    const btn = event.target;
-    btn.textContent = '✓ Copié !';
-    setTimeout(() => btn.textContent = '📋 Copier le résumé', 2000);
+  copyText(text).then(() => {
+    if (btn) {
+      btn.textContent = currentLang === 'en' ? '✓ Copied!' : '✓ Copié !';
+      setTimeout(() => btn.innerHTML = t('btnCopy'), 2000);
+    }
+  }).catch(() => {
+    notify(currentLang === 'en' ? 'Copy blocked by this viewer — open the file in a browser.' : 'Copie bloquée ici — ouvrez le fichier dans un navigateur.');
   });
 }
 
 function clearAll() {
-  if (!confirm('Vider la soumission ?')) return;
+  const btn = document.querySelector('.actions .btn-danger');
+  if (btn && !btn.dataset.confirming) {
+    btn.dataset.confirming = '1';
+    btn.textContent = currentLang === 'en' ? 'Click again to confirm' : 'Cliquez encore pour confirmer';
+    btn._timer = setTimeout(() => { delete btn.dataset.confirming; btn.innerHTML = t('btnClear'); }, 3000);
+    return;
+  }
+  if (btn) { clearTimeout(btn._timer); delete btn.dataset.confirming; btn.innerHTML = t('btnClear'); }
   document.querySelectorAll('.product-card.selected').forEach(c => c.classList.remove('selected'));
   Object.keys(selected).forEach(k => delete selected[k]);
   updateQuote();
